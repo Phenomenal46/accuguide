@@ -42,7 +42,7 @@ function SearchResults() {
       params.append('longitude', longitude.toString())
     }
 
-    fetch(`/api/search/?${params.toString()}`)
+    fetch(`/api/search?${params.toString()}`)
       .then((response) => {
         if (!response.ok) {
           console.error(`[search] error calling /api/search`)
@@ -110,7 +110,7 @@ function SearchResults() {
       params.append('longitude', longitude.toString())
     }
 
-    fetch(`/api/search/?${params.toString()}`)
+    fetch(`/api/search?${params.toString()}`)
       .then((response) => response.json())
       .then((data) => {
         // We ONLY touch the database part here.
@@ -135,7 +135,7 @@ function SearchResults() {
       googlePageToken: googleNextToken,
     })
 
-    fetch(`/api/search/?${params.toString()}`)
+    fetch(`/api/search?${params.toString()}`)
       .then((response) => response.json())
       .then((data) => {
         // APPEND new results to the existing list, don't replace it —

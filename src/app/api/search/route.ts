@@ -154,6 +154,10 @@ export async function GET(request: NextRequest) {
         // If there's nothing left, Google won't include this field, so we default to null —
         // the frontend will use "is this null?" to decide whether to show a "Next" button.
         nextPageToken: googleResponse.next_page_token || null,
+        // TEMPORARY — for debugging only, remove before merging.
+        // This exposes Google's real internal status (e.g. INVALID_REQUEST, ZERO_RESULTS, OK)
+        // which our code currently reads but throws away.
+        debugGoogleStatus: googleResponse.status ?? null,
       },
     ]
     return NextResponse.json(combinedResponse, { status: 200 })

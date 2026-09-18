@@ -8,9 +8,9 @@ const blockedUserAgents = [
 ]
 
 export default (request: Request) => {
-  const userAgent = request.headers.get("user-agent") ?? ""
+  const userAgent = request.headers.get('user-agent') ?? ''
   console.log(`[blocked-user-agent ${userAgent}`)
-  return new Response("Forbidden", { status: 403 })
+  return new Response('Forbidden', { status: 403 })
 }
 
 export const config = {

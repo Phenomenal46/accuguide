@@ -1,19 +1,21 @@
 const blockedUserAgents = [
-  "meta-externalagent",
-  "GPTBot",
-  "Amazonbot",
-  "ShapBot",
-  "Bytespider",
-  "PetalBot",
-];
+  'meta-externalagent',
+  'GPTBot',
+  'Amazonbot',
+  'ShapBot',
+  'Bytespider',
+  'PetalBot',
+]
 
-export default () => {
-  return new Response("Forbidden: AI scraper blocked", { status: 403 });
-};
+export default (request: Request) => {
+  const userAgent = request.headers.get("user-agent") ?? ""
+  console.log(`[blocked-user-agent ${userAgent}`)
+  return new Response("Forbidden", { status: 403 })
+}
 
 export const config = {
-  path: "/*",
+  path: '/*',
   header: {
-    "user-agent": blockedUserAgents.join("|"),
+    'user-agent': blockedUserAgents.join('|'),
   },
-};
+}

@@ -62,11 +62,28 @@ export async function GET(request: NextRequest) {
       let { res: response, json: json1 } = await fetchGooglePlaces(url)
       googleResponse = json1
 
-      if (googlePageToken && googleResponse.status === 'INVALID_REQUEST') {
-        await new Promise((resolve) => setTimeout(resolve, 2000))
-        const retry = await fetchGooglePlaces(url)
-        response = retry.res
-        googleResponse = retry.json
+      // Google's next_page_token needs a short "warm-up" period after being issued
+      // before it actually works. Using it too soon gets INVALID_REQUEST — not a
+      // real failure, just "not ready yet." One retry isn't always enough in
+      // practice, so we try a few times, each time waiting a little longer.
+      if (googlePageToken) {
+        let attempts = 0
+        const MAX_ATTEMPTS = 3
+
+        while (
+          googleResponse.status === 'INVALID_REQUEST' &&
+          attempts < MAX_ATTEMPTS
+        ) {
+          attempts++
+          // Wait longer each time: 2s, then 3s, then 4s — since if 2s wasn't
+          // enough once, trying again after another flat 2s often isn't either.
+          await new Promise((resolve) =>
+            setTimeout(resolve, 2000 + attempts * 1000),
+          )
+          const retry = await fetchGooglePlaces(url)
+          response = retry.res
+          googleResponse = retry.json
+        }
       }
 
       if (!response.ok) {
@@ -154,10 +171,6 @@ export async function GET(request: NextRequest) {
         // If there's nothing left, Google won't include this field, so we default to null —
         // the frontend will use "is this null?" to decide whether to show a "Next" button.
         nextPageToken: googleResponse.next_page_token || null,
-        // TEMPORARY — for debugging only, remove before merging.
-        // This exposes Google's real internal status (e.g. INVALID_REQUEST, ZERO_RESULTS, OK)
-        // which our code currently reads but throws away.
-        debugGoogleStatus: googleResponse.status ?? null,
       },
     ]
     return NextResponse.json(combinedResponse, { status: 200 })

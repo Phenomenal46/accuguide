@@ -10,7 +10,17 @@ import { useLocation } from '@/contexts/location-context'
 import type { PointOfInterest, SearchDisplayProps } from '@/lib/types'
 
 function SearchResults() {
-  const [googleResponse, setGoogleResponse] = useState<SearchDisplayProps[]>([])
+  // Every Google results page we've fetched so far, kept in order.
+  // e.g. googlePages[0] = page 1's results, googlePages[1] = page 2's, etc.
+  // We keep old pages instead of discarding them so "Previous" is instant —
+  // no need to ask Google again for a page we've already seen.
+  const [googlePages, setGooglePages] = useState<SearchDisplayProps[][]>([])
+  // Which cached page we're currently showing (0 = first page)
+  const [googlePageIndex, setGooglePageIndex] = useState(0)
+  // The token to fetch the page AFTER the last one we've cached.
+  // null means Google has told us there's nothing more.
+  const [googleNextToken, setGoogleNextToken] = useState<string | null>(null)
+  const [isLoadingGooglePage, setIsLoadingGooglePage] = useState(false)
   const [dbResponse, setDbResponse] = useState<SearchDisplayProps[]>([])
   const [isLoading, setIsLoading] = useState(false)
   // Which DB page we're currently showing (starts at 1)
@@ -18,12 +28,6 @@ function SearchResults() {
   // Total DB pages returned by the API
   const [dbTotalPages, setDbTotalPages] = useState(1)
 
-  // The token Google gave us to fetch its NEXT batch of results.
-  // null means "no more Google results" (or we haven't searched yet).
-  const [googleNextToken, setGoogleNextToken] = useState<string | null>(null)
-  // A separate loading flag just for the "Load More" button,
-  // so clicking it doesn't trigger the big full-page skeleton loader.
-  const [isLoadingMoreGoogle, setIsLoadingMoreGoogle] = useState(false)
   const searchParams = useSearchParams()
   const query = searchParams.get('query')
   const { latitude, longitude, isLocationChecked } = useLocation()
@@ -50,12 +54,15 @@ function SearchResults() {
         return response.json()
       })
       .then((data) => {
-        setGoogleResponse(data[1].data)
+        // Fresh search — start over with just this one page cached
+        setGooglePages([data[1].data])
+        setGooglePageIndex(0)
+        setGoogleNextToken(data[1].nextPageToken ?? null)
+
         setDbResponse(data[0].data)
         // Fresh search — reset paging trackers for BOTH lists back to "page 1"
         setDbPage(1)
         setDbTotalPages(data[0].totalPages)
-        setGoogleNextToken(data[1].nextPageToken ?? null)
 
         const tempLocations: PointOfInterest[] = [
           ...data[0].data.map(
@@ -125,10 +132,21 @@ function SearchResults() {
       )
   }
 
-  function loadMoreGoogleResults() {
+  function goToGooglePage(newIndex: number) {
+    if (newIndex < 0) return
+
+    // We already have this page cached — just switch to it. Instant,
+    // no network request needed. This is what makes "Previous" free.
+    if (newIndex < googlePages.length) {
+      setGooglePageIndex(newIndex)
+      return
+    }
+
+    // Otherwise, this is a page we've never fetched — we need Google's help,
+    // using the token it gave us after the last page we cached.
     if (!query || !googleNextToken) return
 
-    setIsLoadingMoreGoogle(true)
+    setIsLoadingGooglePage(true)
 
     const params = new URLSearchParams({
       query,
@@ -138,16 +156,15 @@ function SearchResults() {
     fetch(`/api/search?${params.toString()}`)
       .then((response) => response.json())
       .then((data) => {
-        // APPEND new results to the existing list, don't replace it —
-        // this is the natural pattern for token/cursor pagination:
-        // you're extending one continuous list, not jumping to a numbered page.
-        setGoogleResponse((prev) => [...prev, ...data[1].data])
+        // Add this new page onto the end of our cache, then jump to it.
+        setGooglePages((prev) => [...prev, data[1].data])
         setGoogleNextToken(data[1].nextPageToken ?? null)
+        setGooglePageIndex(newIndex)
       })
       .catch((error) =>
-        console.error(`[search] error loading more Google results: ${error}`),
+        console.error(`[search] error changing Google page: ${error}`),
       )
-      .finally(() => setIsLoadingMoreGoogle(false))
+      .finally(() => setIsLoadingGooglePage(false))
   }
 
   return (
@@ -231,7 +248,7 @@ function SearchResults() {
 
               <h2 className="mt-8 mb-4">All Results</h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {googleResponse.map((place) => (
+                {(googlePages[googlePageIndex] ?? []).map((place) => (
                   <SearchDisplay
                     displayType="google"
                     key={place.googleId + place.address}
@@ -244,14 +261,41 @@ function SearchResults() {
                 ))}
               </div>
 
-              {googleNextToken && (
-                <button
-                  onClick={loadMoreGoogleResults}
-                  disabled={isLoadingMoreGoogle}
-                  className="mt-4 rounded border px-3 py-1 disabled:opacity-40"
-                >
-                  {isLoadingMoreGoogle ? 'Loading…' : 'Load More'}
-                </button>
+              {/* Pagination controls — no total page count shown here, since Google
+    never tells us how many pages exist in total, unlike our DB results. */}
+              {/* Only show pagination if there's actually more than one page worth of
+    results — either we've already got 2+ pages cached, or Google still
+    has more beyond what we're showing. Otherwise (e.g. zero results, or
+    exactly one small page), showing disabled Page 1 controls is just
+    confusing UI with nothing real behind it. */}
+              {(googlePages.length > 1 || googleNextToken) && (
+                <div className="mt-6 flex items-center justify-center gap-2">
+                  <span className="mr-3 font-medium text-sm text-white">
+                    Page {googlePageIndex + 1}
+                  </span>
+
+                  <button
+                    onClick={() => goToGooglePage(googlePageIndex - 1)}
+                    disabled={googlePageIndex === 0 || isLoadingGooglePage}
+                    aria-label="Previous page"
+                    className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/2 text-lg text-white transition-all duration-200 hover:cursor-pointer hover:border-white/20 hover:bg-white/6 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    ‹
+                  </button>
+
+                  <button
+                    onClick={() => goToGooglePage(googlePageIndex + 1)}
+                    disabled={
+                      (googlePageIndex + 1 >= googlePages.length &&
+                        !googleNextToken) ||
+                      isLoadingGooglePage
+                    }
+                    aria-label="Next page"
+                    className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/2 text-lg text-white transition-all duration-200 hover:cursor-pointer hover:border-white/20 hover:bg-white/6 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    ›
+                  </button>
+                </div>
               )}
             </div>
 
